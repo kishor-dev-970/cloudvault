@@ -1,0 +1,41 @@
+# Node
+node_modules/
+
+# Builds
+dist/
+build/
+mobile/android/.gradle/
+mobile/android/app/build/
+mobile/ios/build/
+
+# Expo
+.expo/
+mobile/.expo/
+*.pem
+
+# Env / secrets
+.env
+.env.local
+.env.*.local
+
+# Prisma local SQLite database
+server/prisma/dev.db
+server/prisma/dev.db-journal
+server/prisma/*.db
+
+# Stray temp/debug scripts
+server/checkconn*.mjs
+server/check*.mjs
+server/backfill*.mjs
+
+# Logs
+*.log
+
+# OS / editor
+.DS_Store
+Thumbs.db
+
+# Native build artifacts
+mobile/android/local.properties
+mobile/android/.idea/
+mobile/android/captures/

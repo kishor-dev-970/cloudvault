@@ -1,0 +1,17 @@
+{
+  "expo": {
+    "name": "CloudVault",
+    "slug": "cloudvault",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "scheme": "cloudvault",
+    "userInterfaceStyle": "automatic",
+    "ios": {
+      "supportsTablet": true
+    },
+    "android": {
+      "package": "com.cloudvault.app"
+    },
+    "plugins": ["expo-router"]
+  }
+}

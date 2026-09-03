@@ -1,0 +1,51 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String       @id @default(cuid())
+  email        String       @unique
+  passwordHash String?
+  createdAt    DateTime     @default(now())
+  connection   Connection?
+  files        File[]
+}
+
+model Connection {
+  id                  String   @id @default(cuid())
+  userId              String   @unique
+  provider            String   @default("youtube")
+  accessToken         String
+  refreshToken        String
+  tokenExpiresAt      DateTime?
+  externalAccountId   String
+  providerProfileJson String?
+  playlistId          String?
+  createdAt           DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model File {
+  id                  String   @id @default(cuid())
+  userId              String
+  originalName        String
+  mimeType            String
+  sizeBytes           Int
+  mediaKind           String // "video" | "image"
+  externalId          String // YouTube video id
+  thumbnailUrl        String?
+  originalStoragePath String?
+  status              String   @default("uploading") // "uploading" | "uploaded" | "failed"
+  privacyStatus       String   @default("private")
+  createdAt           DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}

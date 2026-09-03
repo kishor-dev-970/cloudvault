@@ -1,0 +1,45 @@
+# Render Blueprint for the CloudVault backend
+# Stores user media as private videos on their own YouTube channel.
+#
+# NOTE: SQLite on Render's Free plan is ephemeral (DB resets on restart/redeploy).
+# Videos stay safe on YouTube; only local mappings/accounts reset.
+# For persistent DB, uncomment the `disk:` block (requires Starter+).
+
+services:
+  - type: web
+    name: cloudvault-server
+    runtime: docker
+    repo: https://github.com/kishor-dev-970/cloudvault.git
+    rootDir: server
+    dockerfilePath: ./Dockerfile
+    plan: free
+    region: oregon
+    healthCheckPath: /api/health
+    autoDeploy: true
+    # disk:
+    #   name: cloudvault-data
+    #   mountPath: /opt/render/project/data
+    #   sizeGB: 1
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 4000
+      - key: DATABASE_URL
+        value: "file:./dev.db"
+      - key: JWT_SECRET
+        generateValue: true
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
+      - key: GOOGLE_API_KEY
+        sync: false
+      - key: GOOGLE_AUTH_REDIRECT_URI
+        sync: false
+      - key: GOOGLE_REDIRECT_URI
+        sync: false
+      - key: EXPO_REDIRECT_URL
+        sync: false
+      - key: CORS_ORIGIN
+        value: "*"
