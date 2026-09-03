@@ -54,6 +54,56 @@ export async function refreshAccessToken(refreshToken: string): Promise<string> 
   return token ?? "";
 }
 
+/**
+ * Start a YouTube resumable upload session WITHOUT sending any media bytes.
+ * Returns the `Location` upload URI (client streams media straight to it) plus a
+ * freshly-refreshed short-lived access token the client uses to authorize the PUTs.
+ * No file bytes ever pass through the app server.
+ */
+export async function createResumableUploadSession(opts: {
+  refreshToken: string;
+  title: string;
+  description: string;
+  mimeType: string;
+  sizeBytes: number;
+}): Promise<{ uploadURI: string; accessToken: string }> {
+  const oauth = buildOAuthClient(undefined, opts.refreshToken);
+  const accessToken = await oauth.getAccessToken();
+  const token = accessToken.token ?? "";
+
+  const url = "https://www.googleapis.com/upload/youtube/v3/videos";
+  const params = new URLSearchParams({ part: "snippet,status", uploadType: "resumable" });
+
+  const body = JSON.stringify({
+    snippet: {
+      title: opts.title,
+      description: opts.description,
+      categoryId: "22",
+    },
+    status: { privacyStatus: "private", selfDeclaredMadeForKids: false },
+  });
+
+  const res = await fetch(`${url}?${params.toString()}`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json; charset=UTF-8",
+      "X-Upload-Content-Length": String(opts.sizeBytes),
+      "X-Upload-Content-Type": opts.mimeType,
+    },
+    body,
+  });
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`YouTube upload session failed (${res.status}): ${text.slice(0, 500)}`);
+  }
+
+  const uploadURI = res.headers.get("location") ?? "";
+  if (!uploadURI) throw new Error("YouTube did not return an upload URI");
+  return { uploadURI, accessToken: token };
+}
+
 export async function uploadPrivateVideo(opts: {
   refreshToken: string;
   filePath: string;

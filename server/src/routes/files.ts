@@ -12,6 +12,7 @@ import {
   refreshAccessToken,
   getOrCreateCloudVaultPlaylist,
   addVideoToPlaylist,
+  createResumableUploadSession,
 } from "../services/youtube.js";
 import {
   isImageMime,
@@ -317,6 +318,110 @@ async function processBufferUpload(
     res.end();
   }
 }
+
+// Direct-to-YouTube resumable upload: the server ONLY authorizes a session and
+// returns a Google upload URI + short-lived access token. The phone then PUTs the
+// media bytes straight to YouTube, so large files never touch the app server.
+filesRouter.post("/upload-session", requireAuth, async (req, res) => {
+  const authReq = req as AuthedRequest;
+  const user = authReq.user!;
+
+  const connection = await prisma.connection.findUnique({ where: { userId: user.id } });
+  if (!connection || !connection.refreshToken) {
+    res.status(400).json({ error: "YouTube not connected" });
+    return;
+  }
+
+  const { name, mimeType, size } = req.body ?? {};
+  if (
+    typeof name !== "string" ||
+    typeof mimeType !== "string" ||
+    !Number.isInteger(size) ||
+    size <= 0
+  ) {
+    res.status(400).json({ error: "Invalid upload session request" });
+    return;
+  }
+
+  const title = `CloudVault - ${name}`.slice(0, 100);
+  try {
+    const { uploadURI, accessToken } = await createResumableUploadSession({
+      refreshToken: connection.refreshToken,
+      title,
+      description: `CloudVault private file: ${name}`,
+      mimeType,
+      sizeBytes: size,
+    });
+    res.json({ uploadURI, accessToken, expiresIn: 3600 });
+  } catch (err) {
+    console.error(`[upload] session failed for user ${user.id}:`, err);
+    res.status(502).json({ error: "Could not start upload session", detail: String(err) });
+  }
+});
+
+// Called by the app AFTER the media has been PUT directly to YouTube, to record
+// the File row, thumbnail, and file it into the private CloudVault playlist.
+filesRouter.post("/complete", requireAuth, async (req, res) => {
+  const authReq = req as AuthedRequest;
+  const user = authReq.user!;
+
+  const { videoId, name, mimeType, size } = req.body ?? {};
+  if (
+    typeof videoId !== "string" ||
+    !videoId ||
+    typeof name !== "string" ||
+    typeof mimeType !== "string"
+  ) {
+    res.status(400).json({ error: "Invalid completion payload" });
+    return;
+  }
+
+  const connection = await prisma.connection.findUnique({ where: { userId: user.id } });
+  if (!connection || !connection.refreshToken) {
+    res.status(400).json({ error: "YouTube not connected" });
+    return;
+  }
+
+  const mediaKind: "video" | "image" = isVideoMime(mimeType) ? "video" : "image";
+  const sizeBytes = Number.isInteger(size) && size > 0 ? size : 0;
+
+  try {
+    const file = await prisma.file.create({
+      data: {
+        userId: user.id,
+        originalName: name,
+        mimeType,
+        sizeBytes,
+        mediaKind,
+        externalId: videoId,
+        thumbnailUrl: await getVideoThumbnail(videoId),
+        status: "uploaded",
+      },
+    });
+
+    // Best-effort: file into the private "CloudVault" playlist (must not fail the upload).
+    try {
+      let playlistId = connection.playlistId;
+      if (!playlistId) {
+        playlistId = await getOrCreateCloudVaultPlaylist(connection.refreshToken);
+        await prisma.connection.update({ where: { userId: user.id }, data: { playlistId } });
+      }
+      await addVideoToPlaylist(connection.refreshToken, playlistId, videoId);
+    } catch (playlistErr) {
+      console.error(`[upload] playlist filing failed for ${videoId}:`, playlistErr);
+    }
+
+    res.json({
+      fileId: file.id,
+      status: "uploaded",
+      externalId: videoId,
+      thumbnailUrl: file.thumbnailUrl,
+    });
+  } catch (err) {
+    console.error(`[upload] complete failed for user ${user.id}:`, err);
+    res.status(500).json({ error: "Could not record upload", detail: String(err) });
+  }
+});
 
 filesRouter.get("/", requireAuth, async (req, res) => {
   const authReq = req as AuthedRequest;
