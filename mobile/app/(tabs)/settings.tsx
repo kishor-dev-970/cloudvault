@@ -1,8 +1,10 @@
 import { useEffect, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { useRouter } from "expo-router";
+import * as WebBrowser from "expo-web-browser";
 import { useAuth } from "../../src/context/AuthContext";
 import { isConnected } from "../../src/services/youtube";
+import { DOCS_URLS } from "../../src/api/config";
 import {
   ensureMediaPermission,
   isAutoSyncEnabled,
@@ -60,6 +62,23 @@ export default function Settings() {
       >
         <Text style={styles.logoutText}>Disconnect YouTube</Text>
       </Pressable>
+
+      <View style={styles.docsSection}>
+        <Pressable
+          style={styles.docRow}
+          onPress={() => WebBrowser.openBrowserAsync(DOCS_URLS.PRIVACY)}
+        >
+          <Text style={styles.docText}>Privacy Policy</Text>
+          <Text style={styles.docArrow}>›</Text>
+        </Pressable>
+        <Pressable
+          style={styles.docRow}
+          onPress={() => WebBrowser.openBrowserAsync(DOCS_URLS.TERMS)}
+        >
+          <Text style={styles.docText}>Terms of Service</Text>
+          <Text style={styles.docArrow}>›</Text>
+        </Pressable>
+      </View>
     </View>
   );
 }
@@ -98,4 +117,18 @@ const styles = StyleSheet.create({
   toggleText: { color: "#fff", fontWeight: "700", fontSize: 14 },
   logout: { backgroundColor: "transparent", borderWidth: 1, borderColor: "#e5353b" },
   logoutText: { color: "#e5353b", fontWeight: "600", fontSize: 15 },
+  docsSection: {
+    marginTop: 24,
+    borderTopWidth: 1,
+    borderTopColor: "#1a1a22",
+    paddingTop: 8,
+  },
+  docRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingVertical: 14,
+  },
+  docText: { color: "#9a9aa5", fontSize: 15 },
+  docArrow: { color: "#555", fontSize: 18 },
 });

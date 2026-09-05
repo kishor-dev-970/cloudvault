@@ -5,6 +5,7 @@ import * as WebBrowser from "expo-web-browser";
 import { useRouter } from "expo-router";
 import { useAuth } from "../src/context/AuthContext";
 import { getRedirectUri } from "../src/services/youtube";
+import { DOCS_URLS } from "../src/api/config";
 
 export default function Login() {
   const { user, connectYouTube, completeOAuth, loading } = useAuth();
@@ -116,6 +117,16 @@ export default function Login() {
           Sign in with your Google account to start uploading videos directly
           to your private YouTube channel.
         </Text>
+
+        <View style={styles.legalRow}>
+          <Pressable onPress={() => WebBrowser.openBrowserAsync(DOCS_URLS.PRIVACY)}>
+            <Text style={styles.legalLink}>Privacy Policy</Text>
+          </Pressable>
+          <Text style={styles.legalDot}>•</Text>
+          <Pressable onPress={() => WebBrowser.openBrowserAsync(DOCS_URLS.TERMS)}>
+            <Text style={styles.legalLink}>Terms of Service</Text>
+          </Pressable>
+        </View>
       </View>
     </View>
   );
@@ -138,4 +149,13 @@ const styles = StyleSheet.create({
   disabled: { opacity: 0.6 },
   buttonText: { color: "#fff", fontWeight: "700", fontSize: 16 },
   hint: { color: "#9a9aa5", fontSize: 13, marginTop: 24, textAlign: "center", lineHeight: 20 },
+  legalRow: {
+    flexDirection: "row",
+    justifyContent: "center",
+    alignItems: "center",
+    marginTop: 20,
+    gap: 8,
+  },
+  legalLink: { color: "#7cb3ff", fontSize: 13, textDecorationLine: "underline" },
+  legalDot: { color: "#666", fontSize: 13 },
 });

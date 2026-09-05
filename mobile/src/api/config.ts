@@ -25,3 +25,9 @@ export function oauthRedirectScheme(): string {
 }
 
 export const OAUTH_PATH = "oauth2redirect";
+
+export const DOCS_URLS = {
+  HOMEPAGE: "https://kishor-dev-970.github.io/cloudvault/",
+  PRIVACY: "https://kishor-dev-970.github.io/cloudvault/privacy.html",
+  TERMS: "https://kishor-dev-970.github.io/cloudvault/terms.html",
+};
