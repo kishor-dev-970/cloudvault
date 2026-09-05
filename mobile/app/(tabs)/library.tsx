@@ -1,9 +1,16 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import { FlatList, Image, Linking, Pressable, StyleSheet, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { api, type FileItem } from "../../src/api/client";
-import { isAutoSyncEnabled, syncNewMedia } from "../../src/services/autosync";
+import { FileItem } from "../../src/api/client";
 import { useFocusEffect } from "expo-router";
+import * as SecureStore from "expo-secure-store";
+
+const FILES_KEY = "cloudvault_files";
+
+async function getLocalFiles(): Promise<FileItem[]> {
+  const raw = await SecureStore.getItemAsync(FILES_KEY);
+  return raw ? JSON.parse(raw) : [];
+}
 
 export default function Library() {
   const [files, setFiles] = useState<FileItem[]>([]);
@@ -11,7 +18,6 @@ export default function Library() {
   const openVideo = useCallback(async (item: FileItem) => {
     try {
       if (item.externalId) {
-        // Deep-link into the YouTube app (or browser) instead of in-app playback.
         await Linking.openURL(`https://youtu.be/${item.externalId}`);
       }
     } catch {
@@ -24,20 +30,8 @@ export default function Library() {
       let cancelled = false;
       (async () => {
         try {
-          const res = await api.listFiles();
-          if (!cancelled) setFiles(res.files);
-        } catch {
-          /* ignore */
-        }
-        // Foreground auto-sync: upload new camera files while the app is open.
-        try {
-          if (await isAutoSyncEnabled()) {
-            const r = await syncNewMedia();
-            if (!cancelled && r.uploaded > 0) {
-              const res2 = await api.listFiles();
-              if (!cancelled) setFiles(res2.files);
-            }
-          }
+          const localFiles = await getLocalFiles();
+          if (!cancelled) setFiles(localFiles);
         } catch {
           /* ignore */
         }
@@ -58,7 +52,7 @@ export default function Library() {
         ListEmptyComponent={
           <View style={styles.empty}>
             <Text style={styles.emptyTitle}>No uploads yet</Text>
-            <Text style={styles.emptySub}>Tap Upload to add your first file</Text>
+            <Text style={styles.emptySub}>Tap Upload to add your first video</Text>
           </View>
         }
         renderItem={({ item }) => (
@@ -66,9 +60,6 @@ export default function Library() {
             style={styles.cell}
             onPress={() => openVideo(item)}
           >
-            {/* Placeholder always rendered underneath; if YouTube hasn't generated
-                a thumbnail (404 for new private uploads) the Image draws nothing
-                and this fallback stays visible. */}
             <View style={styles.placeholder}>
               <Ionicons name="play-circle" size={44} color="#e5353b" />
               <Text style={styles.placeholderName} numberOfLines={2}>
@@ -78,7 +69,6 @@ export default function Library() {
             {item.thumbnailUrl ? (
               <Image source={{ uri: item.thumbnailUrl }} style={styles.thumbOverlay} />
             ) : null}
-            {item.status === "failed" && <Text style={styles.failed}>failed</Text>}
           </Pressable>
         )}
       />
@@ -106,17 +96,6 @@ const styles = StyleSheet.create({
     padding: 6,
   },
   placeholderName: { color: "#888", fontSize: 11, marginTop: 6, textAlign: "center" },
-  failed: {
-    position: "absolute",
-    bottom: 4,
-    left: 4,
-    color: "#ff5c5c",
-    fontSize: 11,
-    backgroundColor: "rgba(0,0,0,0.6)",
-    borderRadius: 4,
-    paddingHorizontal: 4,
-    overflow: "hidden",
-  },
   empty: { alignItems: "center", justifyContent: "center", paddingTop: 120 },
   emptyTitle: { color: "#fff", fontSize: 20, fontWeight: "700" },
   emptySub: { color: "#888", fontSize: 14, marginTop: 8 },

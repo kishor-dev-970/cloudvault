@@ -1,8 +1,24 @@
 import { useState } from "react";
 import { ActivityIndicator, Alert, Pressable, StyleSheet, Text, View } from "react-native";
 import * as DocumentPicker from "expo-document-picker";
+import * as FileSystem from "expo-file-system/legacy";
 import { useRouter } from "expo-router";
-import { api } from "../../src/api/client";
+import * as yt from "../../src/services/youtube";
+import { FileItem } from "../../src/api/client";
+import * as SecureStore from "expo-secure-store";
+
+const FILES_KEY = "cloudvault_files";
+
+async function getLocalFiles(): Promise<FileItem[]> {
+  const raw = await SecureStore.getItemAsync(FILES_KEY);
+  return raw ? JSON.parse(raw) : [];
+}
+
+async function saveLocalFile(file: FileItem): Promise<void> {
+  const files = await getLocalFiles();
+  files.unshift(file);
+  await SecureStore.setItemAsync(FILES_KEY, JSON.stringify(files.slice(0, 500)));
+}
 
 export default function Upload() {
   const router = useRouter();
@@ -11,9 +27,7 @@ export default function Upload() {
 
   const pickAndUpload = async () => {
     const result = await DocumentPicker.getDocumentAsync({
-      type: ["video/*", "image/*"],
-      // Cache copy gives a file:// URI, which fetch() can read (it cannot read
-      // content:// URIs on this device).
+      type: ["video/*"],
       copyToCacheDirectory: true,
     });
     if (result.canceled || !result.assets.length) return;
@@ -22,13 +36,78 @@ export default function Upload() {
     setBusy(true);
     setProgress(0);
     try {
-      await api.upload(
-        { uri: asset.uri, name: asset.name, mimeType: asset.mimeType ?? "application/octet-stream", size: asset.size ?? undefined },
-        (pct) => setProgress(pct)
+      // Read file size
+      const info = await FileSystem.getInfoAsync(asset.uri);
+      const size = info.exists && "size" in info ? info.size : 0;
+      if (size === 0) throw new Error("Cannot read file size");
+
+      // Get upload session from YouTube (directly from phone)
+      const { uploadURI, accessToken } = await yt.createUploadSession({
+        title: `CloudVault - ${asset.name}`.slice(0, 100),
+        description: `CloudVault private video: ${asset.name}`,
+        mimeType: asset.mimeType ?? "video/mp4",
+        sizeBytes: size,
+      });
+
+      // Stream the file to YouTube natively (avoids RN blob bridge limits)
+      const task = FileSystem.createUploadTask(
+        uploadURI,
+        asset.uri,
+        {
+          uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
+          httpMethod: "PUT",
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            "Content-Type": asset.mimeType ?? "video/mp4",
+          },
+        },
+        (progress) => {
+          const expected = progress.totalBytesExpectedToSend;
+          if (expected > 0) {
+            setProgress(Math.min(99, Math.round((progress.totalBytesSent / expected) * 100)));
+          }
+        }
       );
-      Alert.alert("Upload complete", "Your file is now stored privately online.");
+      const putRes = await task.uploadAsync();
+
+      let videoId: string | undefined;
+      if (putRes && putRes.status >= 200 && putRes.status < 300) {
+        try {
+          videoId = (JSON.parse(putRes.body) as { id?: string }).id;
+        } catch {
+          /* ignore */
+        }
+      } else {
+        throw new Error(`YouTube upload failed: ${putRes ? `${putRes.status} ${putRes.body.slice(0, 200)}` : "no response"}`);
+      }
+
+      if (!videoId) throw new Error("YouTube did not return a video id");
+
+      // Save to local library (with the original gallery thumbnail)
+      const fileItem: FileItem = {
+        id: videoId,
+        originalName: asset.name,
+        mimeType: asset.mimeType ?? "video/mp4",
+        sizeBytes: size,
+        mediaKind: "video",
+        externalId: videoId,
+        thumbnailUrl: (await yt.getLocalThumbnail(asset.uri)) ?? yt.getThumbnailUrl(videoId),
+        status: "uploaded",
+        createdAt: new Date().toISOString(),
+      };
+      await saveLocalFile(fileItem);
+
+      // Try to add to CloudVault playlist (best-effort)
+      try {
+        const playlistId = await yt.getOrCreatePlaylist();
+        await yt.addToPlaylist(playlistId, videoId);
+      } catch {
+        /* playlist filing failed — not fatal */
+      }
+
+      setProgress(100);
+      Alert.alert("Upload complete", "Your video is now stored privately on YouTube.");
       setProgress(null);
-      // Go to Library so the fresh list (with thumbnail) is fetched and shown.
       router.replace("/(tabs)/library");
     } catch (e: any) {
       Alert.alert("Upload failed", e.message ?? "Something went wrong");
@@ -53,12 +132,12 @@ export default function Upload() {
             </Text>
           </>
         ) : (
-          <Text style={styles.buttonText}>Pick Video or Photo</Text>
+          <Text style={styles.buttonText}>Pick Video</Text>
         )}
       </Pressable>
       <Text style={styles.hint}>
-        Videos upload directly. Photos are converted to a short video so they can
-        be stored privately on YouTube.
+        Videos upload directly to your private YouTube channel.
+        No data passes through any server.
       </Text>
     </View>
   );

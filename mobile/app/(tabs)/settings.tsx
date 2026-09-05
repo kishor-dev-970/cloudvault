@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
-import { Alert, Pressable, StyleSheet, Text, View } from "react-native";
+import { Pressable, StyleSheet, Text, View } from "react-native";
 import { useRouter } from "expo-router";
 import { useAuth } from "../../src/context/AuthContext";
-import { api } from "../../src/api/client";
+import { isConnected } from "../../src/services/youtube";
 import {
   ensureMediaPermission,
   isAutoSyncEnabled,
@@ -16,75 +16,49 @@ export default function Settings() {
   const [autoSync, setAutoSync] = useState(false);
 
   useEffect(() => {
-    api.youtubeStatus().then((res) => setConnected(res.connected)).catch(() => setConnected(false));
+    isConnected().then(setConnected).catch(() => setConnected(false));
     isAutoSyncEnabled().then(setAutoSync).catch(() => {});
   }, []);
 
   const toggleAutoSync = async () => {
-    try {
-      if (!autoSync) {
-        const granted = await ensureMediaPermission();
-        if (!granted) {
-          Alert.alert("Permission needed", "Allow photo/video access to auto-upload new camera files.");
-          return;
-        }
-      }
-      const next = !autoSync;
-      await setAutoSyncEnabled(next);
-      setAutoSync(next);
-    } catch (e: any) {
-      Alert.alert("Auto-upload error", String(e?.message ?? e));
+    const next = !autoSync;
+    if (next) {
+      const granted = await ensureMediaPermission();
+      if (!granted) return;
     }
-  };
-
-  useEffect(() => {
-    api.youtubeStatus().then((res) => setConnected(res.connected)).catch(() => setConnected(false));
-  }, []);
-
-  const connectYoutube = async () => {
-    try {
-      const { authUrl } = await api.youtubeAuthUrl();
-      if (authUrl) {
-        Alert.alert(
-          "Connect YouTube",
-          "Open this URL in a browser, sign in, and paste the code back here:\n\n" + authUrl
-        );
-      }
-    } catch (e: any) {
-      Alert.alert("Error", e.message);
-    }
+    await setAutoSyncEnabled(next);
+    setAutoSync(next);
   };
 
   return (
     <View style={styles.container}>
-      <Text style={styles.email}>{user?.email}</Text>
+      <Text style={styles.email}>{user?.email ?? "YouTube User"}</Text>
 
       <View style={styles.row}>
         <Text style={styles.label}>YouTube</Text>
-        <Text style={connected === false ? styles.notConnected : styles.connected}>
-          {connected === true ? "Connected" : connected === false ? "Not connected" : "..."}
+        <Text style={connected ? styles.connected : styles.notConnected}>
+          {connected ? "Connected" : "Not connected"}
         </Text>
       </View>
-
-      <Pressable style={styles.button} onPress={connectYoutube}>
-        <Text style={styles.buttonText}>Connect YouTube</Text>
-      </Pressable>
 
       <View style={styles.row}>
         <View style={{ flex: 1, paddingRight: 12 }}>
           <Text style={styles.label}>Auto-upload camera files</Text>
-          <Text style={styles.hint}>Uploads new photos/videos while the app is open.</Text>
+          <Text style={styles.hint}>Uploads new videos while the app is open.</Text>
         </View>
-        <Pressable
-          style={[styles.toggle, autoSync && styles.toggleOn]}
-          onPress={toggleAutoSync}
-        >
+        <Pressable style={[styles.toggle, autoSync && styles.toggleOn]} onPress={toggleAutoSync}>
           <Text style={styles.toggleText}>{autoSync ? "ON" : "OFF"}</Text>
         </Pressable>
       </View>
 
-      <Pressable style={[styles.button, styles.logout]} onPress={async () => { await logout(); router.replace("/login"); }}>
-        <Text style={styles.logoutText}>Log Out</Text>
+      <Pressable
+        style={[styles.button, styles.logout]}
+        onPress={async () => {
+          await logout();
+          router.replace("/login");
+        }}
+      >
+        <Text style={styles.logoutText}>Disconnect YouTube</Text>
       </Pressable>
     </View>
   );

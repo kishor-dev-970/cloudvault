@@ -1,124 +1,123 @@
-import { useState, useEffect, useRef } from "react";
-import { AppState, KeyboardAvoidingView, Platform, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { ActivityIndicator, Alert, Pressable, StyleSheet, Text, View } from "react-native";
 import * as Linking from "expo-linking";
+import * as WebBrowser from "expo-web-browser";
 import { useRouter } from "expo-router";
 import { useAuth } from "../src/context/AuthContext";
-import { api } from "../src/api/client";
+import { getRedirectUri } from "../src/services/youtube";
 
 export default function Login() {
-  const { login, signup, user, completeGoogleSignIn } = useAuth();
+  const { user, connectYouTube, completeOAuth, loading } = useAuth();
   const router = useRouter();
-  useEffect(() => {
-    if (user) router.replace("/(tabs)/library");
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user]);
-  const [mode, setMode] = useState<"login" | "signup">("login");
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const processed = useRef(false);
 
-  // When the OAuth browser returns, the app foregrounds again; pick up the server-side
-  // pending session so sign-in completes even though Expo Go strips deep-link payloads.
-  useEffect(() => {
-    if (user) return;
-    const check = async () => {
+  const handleOAuthUrl = useCallback(
+    async (rawUrl: string) => {
+      if (processed.current) return;
+      processed.current = true;
       try {
-        const session = await api.pendingGoogleSession();
-        if (session?.token && session.email) await completeGoogleSignIn(session.token, session.email);
-      } catch {
-        /* no pending session */
+        const url = new URL(rawUrl);
+        const error = url.searchParams.get("error");
+        const code = url.searchParams.get("code");
+
+        if (error) {
+          Alert.alert("OAuth Error", error);
+          return;
+        }
+
+        if (code) {
+          try {
+            const SecureStore = await import("expo-secure-store");
+            const verifier = await SecureStore.getItemAsync("cv_oauth_verifier");
+            if (verifier) {
+              await completeOAuth(code, verifier);
+              await SecureStore.deleteItemAsync("cv_oauth_verifier");
+              router.replace("/(tabs)/library");
+            }
+          } catch (e: any) {
+            Alert.alert("Connection failed", e.message ?? "Could not complete YouTube sign-in");
+          }
+        }
+      } finally {
+        setBusy(false);
       }
-    };
-    check();
-    const sub = AppState.addEventListener("change", (s) => {
-      if (s === "active") check();
+    },
+    [completeOAuth, router]
+  );
+
+  useEffect(() => {
+    const sub = Linking.addEventListener("url", (event) => {
+      handleOAuthUrl(event.url);
     });
     return () => sub.remove();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user]);
+  }, [handleOAuthUrl]);
 
-  const submit = async () => {
-    setError("");
-    setBusy(true);
-    try {
-      if (mode === "login") await login(email, password);
-      else await signup(email, password);
-    } catch (e: any) {
-      setError(e.message ?? "Something went wrong");
-    } finally {
-      setBusy(false);
-    }
-  };
+  if (loading) {
+    return (
+      <View style={styles.container}>
+        <ActivityIndicator size="large" color="#e5353b" />
+      </View>
+    );
+  }
 
-  const googleLogin = async () => {
-    setError("");
+  if (user) {
+    router.replace("/(tabs)/library");
+    return null;
+  }
+
+  const handleConnect = async () => {
     setBusy(true);
+    processed.current = false;
     try {
-      const { authUrl } = await api.googleAuthUrl();
-      await Linking.openURL(authUrl);
+      const { url, codeVerifier } = await connectYouTube();
+      // Store codeVerifier for later
+      await import("expo-secure-store").then((s) =>
+        s.setItemAsync("cv_oauth_verifier", codeVerifier)
+      );
+      // Launch in a Chrome Custom Tab and await the deep-link result.
+      // (Google policy rejects custom-scheme OAuth when opened in a loose
+      // system browser like Samsung Internet.)
+      const result = await WebBrowser.openAuthSessionAsync(url, getRedirectUri());
+      if (result.type === "success" && result.url) {
+        await handleOAuthUrl(result.url);
+      } else {
+        setBusy(false);
+        processed.current = false;
+      }
     } catch (e: any) {
-      setError(e.message ?? "Could not open Google login");
+      Alert.alert("Error", e.message ?? "Could not start YouTube connection");
       setBusy(false);
+      processed.current = false;
     }
   };
 
   return (
-    <KeyboardAvoidingView
-      behavior={Platform.OS === "ios" ? "padding" : undefined}
-      style={styles.container}
-    >
+    <View style={styles.container}>
       <View style={styles.card}>
         <Text style={styles.logo}>CloudVault</Text>
         <Text style={styles.subtitle}>
-          Private media stored in your own YouTube account
+          Private video storage in your own YouTube account
         </Text>
 
-        <TextInput
-          style={styles.input}
-          placeholder="Email"
-          placeholderTextColor="#888"
-          autoCapitalize="none"
-          keyboardType="email-address"
-          value={email}
-          onChangeText={setEmail}
-        />
-        <TextInput
-          style={styles.input}
-          placeholder="Password"
-          placeholderTextColor="#888"
-          secureTextEntry
-          value={password}
-          onChangeText={setPassword}
-        />
-
-        {!!error && <Text style={styles.error}>{error}</Text>}
-
-        <Pressable style={[styles.googleButton, busy && styles.disabled]} onPress={googleLogin} disabled={busy}>
-          <Text style={styles.googleButtonText}>Continue with Google</Text>
+        <Pressable
+          style={[styles.button, busy && styles.disabled]}
+          onPress={handleConnect}
+          disabled={busy}
+        >
+          {busy ? (
+            <ActivityIndicator color="#fff" />
+          ) : (
+            <Text style={styles.buttonText}>Connect YouTube</Text>
+          )}
         </Pressable>
 
-        <View style={styles.dividerRow}>
-          <View style={styles.divider} />
-          <Text style={styles.dividerText}>or</Text>
-          <View style={styles.divider} />
-        </View>
-
-        <Pressable style={[styles.button, busy && styles.disabled]} onPress={submit} disabled={busy}>
-          <Text style={styles.buttonText}>
-            {mode === "login" ? "Log In" : "Create Account"}
-          </Text>
-        </Pressable>
-
-        <Pressable onPress={() => setMode(mode === "login" ? "signup" : "login")}>
-          <Text style={styles.switch}>
-            {mode === "login"
-              ? "Don't have an account? Sign up"
-              : "Already have an account? Log in"}
-          </Text>
-        </Pressable>
+        <Text style={styles.hint}>
+          Sign in with your Google account to start uploading videos directly
+          to your private YouTube channel.
+        </Text>
       </View>
-    </KeyboardAvoidingView>
+    </View>
   );
 }
 
@@ -127,36 +126,16 @@ const styles = StyleSheet.create({
   card: { width: "100%" },
   logo: { color: "#fff", fontSize: 34, fontWeight: "800", marginBottom: 4 },
   subtitle: { color: "#9a9aa5", fontSize: 14, marginBottom: 32 },
-  input: {
-    backgroundColor: "#1a1a22",
-    borderRadius: 12,
-    padding: 14,
-    color: "#fff",
-    fontSize: 15,
-    marginBottom: 12,
-  },
-  error: { color: "#ff5c5c", marginBottom: 12, fontSize: 13 },
-  googleButton: {
-    backgroundColor: "#fff",
-    borderRadius: 12,
-    padding: 16,
-    alignItems: "center",
-    marginBottom: 16,
-    flexDirection: "row",
-    justifyContent: "center",
-  },
-  googleButtonText: { color: "#111", fontWeight: "700", fontSize: 16 },
-  dividerRow: { flexDirection: "row", alignItems: "center", marginBottom: 16 },
-  divider: { flex: 1, height: 1, backgroundColor: "#2a2a33" },
-  dividerText: { color: "#777", marginHorizontal: 12, fontSize: 12 },
   button: {
     backgroundColor: "#e5353b",
     borderRadius: 12,
-    padding: 16,
+    padding: 18,
     alignItems: "center",
-    marginTop: 4,
+    flexDirection: "row",
+    justifyContent: "center",
+    gap: 10,
   },
   disabled: { opacity: 0.6 },
   buttonText: { color: "#fff", fontWeight: "700", fontSize: 16 },
-  switch: { color: "#e5353b", textAlign: "center", marginTop: 20, fontSize: 14 },
+  hint: { color: "#9a9aa5", fontSize: 13, marginTop: 24, textAlign: "center", lineHeight: 20 },
 });

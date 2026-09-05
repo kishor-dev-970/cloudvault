@@ -2,15 +2,32 @@
   "expo": {
     "name": "CloudVault",
     "slug": "cloudvault",
-    "version": "0.1.0",
+    "version": "1.0.0",
     "orientation": "portrait",
     "scheme": "cloudvault",
     "userInterfaceStyle": "automatic",
+    "icon": "./assets/images/icon.png",
     "ios": {
       "supportsTablet": true
     },
     "android": {
-      "package": "com.cloudvault.app"
+      "package": "com.cloudvault2.app",
+      "versionCode": 1,
+      "adaptiveIcon": {
+        "backgroundColor": "#0d0d12",
+        "foregroundImage": "./assets/images/icon-foreground.png",
+        "monochromeImage": "./assets/images/icon-monochrome.png"
+      },
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "data": [
+            { "scheme": "com.googleusercontent.apps.700079911725-tirv21h6nfd9kquruodgh29rhdotakr4" },
+            { "scheme": "cloudvault" }
+          ],
+          "category": ["BROWSABLE", "DEFAULT"]
+        }
+      ]
     },
     "plugins": [
       "expo-router"

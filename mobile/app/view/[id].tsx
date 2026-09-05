@@ -1,35 +1,29 @@
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { useEffect, useState } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
-import { useVideoPlayer, VideoView } from "expo-video";
-import { api, type FileItem } from "../../src/api/client";
+import { useCallback, useState } from "react";
+import { ActivityIndicator, Linking, Pressable, StyleSheet, Text, View } from "react-native";
+import * as SecureStore from "expo-secure-store";
 import { Ionicons } from "@expo/vector-icons";
+import { FileItem } from "../../src/api/client";
+
+const FILES_KEY = "cloudvault_files";
 
 export default function ViewFile() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
-  const [file, setFile] = useState<FileItem | null>(null);
-  const [streamUrl, setStreamUrl] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
 
-  useEffect(() => {
-    api.listFiles()
-      .then((res) => {
-        const found = res.files.find((f) => f.id === id);
-        setFile(found ?? null);
-      })
-      .catch(() => {});
-
-    api
-      .getStreamUrl(id)
-      .then((res) => setStreamUrl(res.url))
-      .catch((e) => setError(e.message ?? "Could not load video"));
+  const openVideo = useCallback(async () => {
+    setLoading(true);
+    try {
+      const raw = await SecureStore.getItemAsync(FILES_KEY);
+      const files: FileItem[] = raw ? JSON.parse(raw) : [];
+      const file = files.find((f) => f.id === id);
+      if (file?.externalId) {
+        await Linking.openURL(`https://youtu.be/${file.externalId}`);
+      }
+    } catch {}
+    setLoading(false);
   }, [id]);
-
-  const player = useVideoPlayer(streamUrl, (player) => {
-    player.loop = true;
-    player.play();
-  });
 
   return (
     <View style={styles.container}>
@@ -37,49 +31,27 @@ export default function ViewFile() {
         <Pressable onPress={() => router.back()}>
           <Ionicons name="chevron-back" size={28} color="#fff" />
         </Pressable>
-        <Text style={styles.title} numberOfLines={1}>
-          {file?.originalName ?? "Loading..."}
-        </Text>
+        <Text style={styles.title} numberOfLines={1}>Video</Text>
       </View>
-
-      {streamUrl && !error ? (
-        <VideoView
-          player={player}
-          style={styles.video}
-          contentFit="contain"
-          nativeControls
-        />
-      ) : (
-        <View style={styles.placeholder}>
-          {error ? (
-            <Text style={styles.errorText}>{error}</Text>
-          ) : (
-            <Text style={styles.placeholderText}>Loading stream...</Text>
-          )}
-        </View>
-      )}
+      <View style={styles.center}>
+        {loading ? (
+          <ActivityIndicator color="#e5353b" />
+        ) : (
+          <Pressable style={styles.playBtn} onPress={openVideo}>
+            <Ionicons name="play" size={48} color="#fff" />
+            <Text style={styles.playText}>Open in YouTube</Text>
+          </Pressable>
+        )}
+      </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#000" },
-  header: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-    padding: 16,
-    backgroundColor: "#0b0b0f",
-  },
+  container: { flex: 1, backgroundColor: "#0b0b0f" },
+  header: { flexDirection: "row", alignItems: "center", gap: 12, padding: 16 },
   title: { color: "#fff", fontSize: 16, fontWeight: "600", flex: 1 },
-  video: { flex: 1, width: "100%" },
-  placeholder: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "#0b0b0f",
-    padding: 24,
-  },
-  placeholderText: { color: "#888" },
-  errorText: { color: "#ff5c5c", textAlign: "center", fontSize: 14 },
+  center: { flex: 1, alignItems: "center", justifyContent: "center" },
+  playBtn: { alignItems: "center", gap: 12 },
+  playText: { color: "#9a9aa5", fontSize: 14 },
 });

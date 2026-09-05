@@ -119,6 +119,7 @@ authRouter.get("/google/callback", async (req, res) => {
       token,
       email: user.email,
       connected: refreshToken ? "1" : "0",
+      refreshToken: refreshToken || "",
       channelId: channelId ?? null,
       createdAt: Date.now(),
     };
@@ -140,6 +141,7 @@ let lastPendingSession: {
   token: string;
   email: string;
   connected: string;
+  refreshToken: string;
   channelId: string | null;
   createdAt: number;
 } | null = null;
@@ -155,6 +157,7 @@ authRouter.get("/pending-session", (_req, res) => {
     token: s.token,
     email: s.email,
     connected: s.connected === "1",
+    refreshToken: s.refreshToken,
   };
   if (s.channelId) body.channelId = s.channelId;
   res.json(body);
