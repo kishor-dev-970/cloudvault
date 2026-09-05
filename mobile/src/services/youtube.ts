@@ -2,6 +2,7 @@ import * as SecureStore from "expo-secure-store";
 import * as Crypto from "expo-crypto";
 import * as VideoThumbnails from "expo-video-thumbnails";
 import { GOOGLE_CLIENT_ID, oauthRedirectScheme, OAUTH_PATH } from "../api/config";
+import { FileItem } from "../api/client";
 
 const CLIENT_ID = GOOGLE_CLIENT_ID;
 
@@ -278,3 +279,75 @@ export async function addToPlaylist(playlistId: string, videoId: string): Promis
   );
   if (!res.ok) throw new Error("Could not add video to playlist");
 }
+
+/** Fetch all videos currently stored in the CloudVault playlist on YouTube. */
+export async function fetchPlaylistVideos(): Promise<FileItem[]> {
+  const token = await getAccessToken();
+  const playlistId = await getOrCreatePlaylist();
+
+  const res = await fetch(
+    `https://www.googleapis.com/youtube/v3/playlistItems?part=snippet,contentDetails&playlistId=${playlistId}&maxResults=50`,
+    {
+      headers: { Authorization: `Bearer ${token}` },
+    }
+  );
+
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Failed to fetch playlist items (${res.status}): ${text.slice(0, 200)}`);
+  }
+
+  const data = await res.json();
+  const items = data.items ?? [];
+
+  return items.map((item: any): FileItem => {
+    const videoId = item.contentDetails?.videoId ?? item.snippet?.resourceId?.videoId ?? item.id;
+    const title = (item.snippet?.title ?? "Video").replace(/^CloudVault\s*-\s*/i, "");
+    const thumb =
+      item.snippet?.thumbnails?.high?.url ||
+      item.snippet?.thumbnails?.medium?.url ||
+      item.snippet?.thumbnails?.default?.url ||
+      getThumbnailUrl(videoId);
+
+    return {
+      id: videoId,
+      originalName: title,
+      mimeType: "video/mp4",
+      sizeBytes: 0,
+      mediaKind: "video",
+      externalId: videoId,
+      thumbnailUrl: thumb,
+      status: "uploaded",
+      createdAt: item.snippet?.publishedAt ?? new Date().toISOString(),
+      playlistItemId: item.id,
+    };
+  });
+}
+
+/** Delete a video from CloudVault and YouTube. */
+export async function deleteVideo(videoId: string, playlistItemId?: string): Promise<void> {
+  const token = await getAccessToken();
+
+  // If playlistItemId is provided, remove from playlist first
+  if (playlistItemId) {
+    try {
+      await fetch(`https://www.googleapis.com/youtube/v3/playlistItems?id=${playlistItemId}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+    } catch {
+      /* ignore playlist item delete error */
+    }
+  }
+
+  // Then delete the video itself from YouTube
+  try {
+    await fetch(`https://www.googleapis.com/youtube/v3/videos?id=${videoId}`, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${token}` },
+    });
+  } catch {
+    /* ignore video delete error */
+  }
+}
+

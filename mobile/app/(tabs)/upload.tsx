@@ -4,21 +4,8 @@ import * as DocumentPicker from "expo-document-picker";
 import * as FileSystem from "expo-file-system/legacy";
 import { useRouter } from "expo-router";
 import * as yt from "../../src/services/youtube";
+import * as storage from "../../src/services/storage";
 import { FileItem } from "../../src/api/client";
-import * as SecureStore from "expo-secure-store";
-
-const FILES_KEY = "cloudvault_files";
-
-async function getLocalFiles(): Promise<FileItem[]> {
-  const raw = await SecureStore.getItemAsync(FILES_KEY);
-  return raw ? JSON.parse(raw) : [];
-}
-
-async function saveLocalFile(file: FileItem): Promise<void> {
-  const files = await getLocalFiles();
-  files.unshift(file);
-  await SecureStore.setItemAsync(FILES_KEY, JSON.stringify(files.slice(0, 500)));
-}
 
 export default function Upload() {
   const router = useRouter();
@@ -26,6 +13,8 @@ export default function Upload() {
   const [progress, setProgress] = useState<number | null>(null);
 
   const pickAndUpload = async () => {
+    // Must copy to cache so expo-file-system can access it for upload
+    // (SAF content URIs from copyToCacheDirectory:false cause IOException)
     const result = await DocumentPicker.getDocumentAsync({
       type: ["video/*"],
       copyToCacheDirectory: true,
@@ -38,7 +27,7 @@ export default function Upload() {
     try {
       // Read file size
       const info = await FileSystem.getInfoAsync(asset.uri);
-      const size = info.exists && "size" in info ? info.size : 0;
+      const size = info.exists && "size" in info ? (info.size ?? 0) : 0;
       if (size === 0) throw new Error("Cannot read file size");
 
       // Get upload session from YouTube (directly from phone)
@@ -49,7 +38,7 @@ export default function Upload() {
         sizeBytes: size,
       });
 
-      // Stream the file to YouTube natively (avoids RN blob bridge limits)
+      // Stream the file to YouTube natively
       const task = FileSystem.createUploadTask(
         uploadURI,
         asset.uri,
@@ -61,10 +50,10 @@ export default function Upload() {
             "Content-Type": asset.mimeType ?? "video/mp4",
           },
         },
-        (progress) => {
-          const expected = progress.totalBytesExpectedToSend;
+        (progressEvent) => {
+          const expected = progressEvent.totalBytesExpectedToSend;
           if (expected > 0) {
-            setProgress(Math.min(99, Math.round((progress.totalBytesSent / expected) * 100)));
+            setProgress(Math.min(99, Math.round((progressEvent.totalBytesSent / expected) * 100)));
           }
         }
       );
@@ -78,12 +67,24 @@ export default function Upload() {
           /* ignore */
         }
       } else {
-        throw new Error(`YouTube upload failed: ${putRes ? `${putRes.status} ${putRes.body.slice(0, 200)}` : "no response"}`);
+        throw new Error(
+          `YouTube upload failed: ${putRes ? `${putRes.status} ${putRes.body.slice(0, 200)}` : "no response"}`
+        );
       }
 
       if (!videoId) throw new Error("YouTube did not return a video id");
 
-      // Save to local library (with the original gallery thumbnail)
+      // Extract and save thumbnail permanently to document storage
+      let permanentThumbnail: string | null = null;
+      try {
+        const tempThumbnail = await yt.getLocalThumbnail(asset.uri);
+        if (tempThumbnail) {
+          permanentThumbnail = await storage.savePermanentThumbnail(tempThumbnail, videoId);
+        }
+      } catch {
+        /* thumbnail extraction best-effort */
+      }
+
       const fileItem: FileItem = {
         id: videoId,
         originalName: asset.name,
@@ -91,13 +92,15 @@ export default function Upload() {
         sizeBytes: size,
         mediaKind: "video",
         externalId: videoId,
-        thumbnailUrl: (await yt.getLocalThumbnail(asset.uri)) ?? yt.getThumbnailUrl(videoId),
+        thumbnailUrl: permanentThumbnail ?? yt.getThumbnailUrl(videoId),
         status: "uploaded",
         createdAt: new Date().toISOString(),
       };
-      await saveLocalFile(fileItem);
 
-      // Try to add to CloudVault playlist (best-effort)
+      // Persist to local JSON catalog
+      await storage.saveLocalFile(fileItem);
+
+      // Add to CloudVault playlist (best-effort)
       try {
         const playlistId = await yt.getOrCreatePlaylist();
         await yt.addToPlaylist(playlistId, videoId);
@@ -114,6 +117,14 @@ export default function Upload() {
       setProgress(null);
     } finally {
       setBusy(false);
+      // Clean up the cached copy to reclaim storage
+      try {
+        if (asset.uri.startsWith(FileSystem.cacheDirectory ?? "")) {
+          await FileSystem.deleteAsync(asset.uri, { idempotent: true });
+        }
+      } catch {
+        /* cleanup best-effort */
+      }
     }
   };
 
@@ -144,7 +155,13 @@ export default function Upload() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#0b0b0f", alignItems: "center", justifyContent: "center", padding: 24 },
+  container: {
+    flex: 1,
+    backgroundColor: "#0b0b0f",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 24,
+  },
   button: {
     backgroundColor: "#e5353b",
     borderRadius: 14,

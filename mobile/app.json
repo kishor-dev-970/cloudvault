@@ -2,7 +2,7 @@
   "expo": {
     "name": "CloudVault",
     "slug": "cloudvault",
-    "version": "1.0.0",
+    "version": "1.1.0",
     "orientation": "portrait",
     "scheme": "cloudvault",
     "userInterfaceStyle": "automatic",
@@ -12,7 +12,7 @@
     },
     "android": {
       "package": "com.cloudvault2.app",
-      "versionCode": 1,
+      "versionCode": 2,
       "adaptiveIcon": {
         "backgroundColor": "#0d0d12",
         "foregroundImage": "./assets/images/icon-foreground.png",

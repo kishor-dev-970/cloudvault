@@ -13,12 +13,5 @@ export interface FileItem {
   thumbnailUrl: string | null;
   status: "uploading" | "uploaded" | "failed";
   createdAt: string;
+  playlistItemId?: string;
 }
-
-class ApiError extends Error {
-  constructor(public status: number, message: string) {
-    super(message);
-  }
-}
-
-export { ApiError };
