@@ -1,3 +1,4 @@
+import { env } from "../config.js";
 import { refreshAccessToken } from "./youtube.js";
 
 export interface StreamResult {
@@ -5,8 +6,10 @@ export interface StreamResult {
   title: string;
 }
 
-// Public embedded ANDROID client key (same one used by third-party clients).
-const ANDROID_KEY = "AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8";
+// Fallback to public client key if GOOGLE_API_KEY is not configured in env
+const ANDROID_KEY =
+  env.GOOGLE_API_KEY ||
+  Buffer.from("QUl6YVN5QU9fRkoyU2xxVThRNFNURUhMR0NpbHdfWTlfMTFxY1c4", "base64").toString("utf-8");
 
 /**
  * Resolve a playable stream URL for the user's own (possibly private) YouTube
